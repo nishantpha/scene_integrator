@@ -33,13 +33,9 @@ Thumbs.db
 *.tmp
 *.swp
 
-# Project outputs
-outputs/
-**/outputs/
 
-# Debug artifacts
-**/debug/
-**/debug_*.*
+
+
 
 # Model weights / large assets (keep if you want them in git)
 models/
