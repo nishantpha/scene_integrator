@@ -1,0 +1,59 @@
+# --- Python / Build ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+pip-wheel-metadata/
+
+# Virtual env
+venv/
+.env/
+.venv/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.iml
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Logs / temp
+*.log
+*.tmp
+*.swp
+
+# Project outputs
+outputs/
+**/outputs/
+
+# Debug artifacts
+**/debug/
+**/debug_*.*
+
+# Model weights / large assets (keep if you want them in git)
+models/
+!models/.keep
+
+# Rembg cache
+~/.u2net/
+.u2net/
+.u2net_cache/
+
+# Coverage / test
+htmlcov/
+.coverage*
+.pytest_cache/
+.tox/
+.mypy_cache/
+.pyre/

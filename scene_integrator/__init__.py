@@ -1,0 +1,1 @@
+from .compose import integrate_person_into_scene
