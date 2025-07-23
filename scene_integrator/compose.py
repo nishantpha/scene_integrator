@@ -90,6 +90,10 @@ def integrate_person_into_scene(person_path, bg_path, out_path,
     alpha_full = np.zeros((H, W), dtype=np.float32)
     alpha_full[by0:by1, bx0:bx1] = alpha[py0:py1, px0:px1]
 
+    # --- Shrink mask edge (last-resort halo killer) ---
+    kernel_edge = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))  # try (3,3) or (5,5)
+    alpha_full = cv2.erode(alpha_full, kernel_edge, iterations=1)
+
     # Base canvas
     canvas = bg.copy()
 
@@ -117,13 +121,16 @@ def integrate_person_into_scene(person_path, bg_path, out_path,
     else:
         ring = cv2.GaussianBlur(ring, (config.edge_ring_blur, config.edge_ring_blur), 0)
     ring = np.clip(ring, 0.0, 1.0)
-    ring[ring < 0.03] = 0
+    ring[ring < 0.07] = 0
 
     alpha_feather = np.clip(alpha_core + ring, 0, 1)
 
-    mix = overlay.astype(float) * (1 - config.bg_bleed) + bg.astype(float) * config.bg_bleed
-    final_overlay = overlay.astype(float)
-    final_overlay = final_overlay * (1 - ring[:, :, None]) + mix * ring[:, :, None]
+    # sample solid FG color (median of core area)
+    core = overlay[alpha_core > 0.95].reshape(-1, 3)
+    fg_ref = np.median(core, axis=0) if core.size else np.array([0,0,0])
+    fg_ref_img = np.tile(fg_ref, (overlay.shape[0], overlay.shape[1], 1))
+
+    final_overlay = overlay.astype(float) * (1 - ring[:, :, None]) + fg_ref_img * ring[:, :, None]
 
     canvas = (final_overlay * alpha_feather[:, :, None] +
               canvas.astype(float) * (1 - alpha_feather[:, :, None])).astype(np.uint8)

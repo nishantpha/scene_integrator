@@ -20,12 +20,12 @@ class IntegratorConfig:
     contact_shadow_strength: float = 0.4
 
     # Alpha cleanup
-    min_alpha: float = 0.95
+    min_alpha: float = 0.98
 
     # Edge feather tuning
-    edge_inner_erode: int = 3  # odd kernel
-    edge_ring_blur: int = 11  # kept for fallback (Gaussian)
-    bg_bleed: float = 0.25 # 0..1 background fraction in feather mix
+    edge_inner_erode: int = 1  # odd kernel
+    edge_ring_blur: int = 7  # kept for fallback (Gaussian)
+    bg_bleed: float = 0.12 # 0..1 background fraction in feather mix
 
     # Bilateral switch (off by default; Gaussian is fine)
     use_bilateral: bool = False
