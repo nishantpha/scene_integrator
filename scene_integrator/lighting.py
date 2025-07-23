@@ -7,17 +7,11 @@ def estimate_light_direction_outdoor(bg_bgr, person_point, shadow_point):
     return vec / n
 
 def estimate_light_direction_indoor(bg_bgr, samples=2000):
-    """
-    Gradient-based crude direction estimate (indoor/diffuse fallback).
-    Uses float32 to avoid OpenCV dtype error.
-    """
     gray = cv2.cvtColor(bg_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
-
-    # Try Sobel safely
     gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
-
     mag = np.sqrt(gx**2 + gy**2)
+
     flat_idx = np.argsort(mag.ravel())[-samples:]
     vx = gx.ravel()[flat_idx].mean()
     vy = gy.ravel()[flat_idx].mean()

@@ -5,7 +5,7 @@ from rembg import remove
 
 def extract_person_rgba(person_path: str, model_path: str = "models/u2net.onnx"):
     """
-    Returns BGRA numpy array (H, W, 4) for OpenCV.
+    Return BGRA numpy array (H, W, 4) using rembg (U^2-Net) only.
     """
     with open(person_path, "rb") as f:
         person_bytes = f.read()

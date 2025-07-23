@@ -12,28 +12,28 @@ def integrate_person_into_scene(person_path, bg_path, out_path,
                                 place_xy=None, scale=1.0,
                                 shadow_ref_person=None, shadow_ref_tip=None,
                                 debug_dir=None):
-    # --- load images ---
+    # Load
     bg = cv2.imread(bg_path, cv2.IMREAD_COLOR)
     person_bgra = extract_person_rgba(person_path)
 
-    # --- scale person ---
+    # Scale
     if scale != 1.0:
         person_bgra = cv2.resize(person_bgra, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     ph, pw = person_bgra.shape[:2]
 
-    # --- default placement ---
+    # Placement
     if place_xy is None:
         place_xy = (bg.shape[1] // 2 - pw // 2, bg.shape[0] // 2 - ph // 2)
     tx, ty = place_xy
 
-    # --- BG shadow detection (debug only) ---
+    # Shadow detection (debug only)
     shadow_mask_all, shadow_hard, shadow_soft = detect_shadows(bg)
     if debug_dir and config.debug:
         save_debug(shadow_mask_all, f"{debug_dir}/shadow_all.png", bgr=False)
         save_debug(shadow_hard, f"{debug_dir}/shadow_hard.png", bgr=False)
         save_debug(shadow_soft, f"{debug_dir}/shadow_soft.png", bgr=False)
 
-    # --- Light direction (for possible contact shadow) ---
+    # Light direction
     if config.indoor:
         light_vec = estimate_light_direction_indoor(bg, samples=config.light_estimation_samples)
     else:
@@ -49,33 +49,28 @@ def integrate_person_into_scene(person_path, bg_path, out_path,
         cv2.arrowedLine(dbg, p, tip, (0, 0, 255), 3, tipLength=0.2)
         save_debug(dbg, f"{debug_dir}/light_vector.png")
 
-    # --- Person & alpha preparation ---
+    # Alpha & person
     person_bgr = person_bgra[:, :, :3]
-    alpha_raw = person_bgra[:, :, 3] / 255.0
+    alpha_raw = person_bgra[:, :, 3].astype(np.float32) / 255.0
 
-    # Alpha cleanup: remove speckles, keep interior opaque
+    # Clean alpha
     hard_mask = (alpha_raw > 0.1).astype(np.float32)
-    hard_mask = cv2.morphologyEx(
-        hard_mask,
-        cv2.MORPH_CLOSE,
-        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    )
+    hard_mask = cv2.morphologyEx(hard_mask, cv2.MORPH_CLOSE,
+                                 cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
     alpha = cv2.GaussianBlur(hard_mask, (5, 5), 0)
     inside = alpha > 0.6
     alpha[inside] = np.maximum(alpha[inside], config.min_alpha)
 
-    # --- Color match (optional) ---
+    # Color match (optional)
     if config.color_match_method == "none":
         person_color = person_bgr.copy()
     else:
         roi = (max(tx - 30, 0), max(ty - 30, 0),
                min(pw + 60, bg.shape[1] - tx), min(ph + 60, bg.shape[0] - ty))
-        ct = match_color(person_bgr, bg,
-                         method=config.color_match_method,
-                         target_roi=roi)
+        ct = match_color(person_bgr, bg, method=config.color_match_method, target_roi=roi)
         person_color = (0.6 * person_bgr + 0.4 * ct).astype(np.uint8)
 
-    # --- Safe paste coordinates ---
+    # Safe coords
     H, W = bg.shape[:2]
     x0, y0 = tx, ty
     x1, y1 = tx + pw, ty + ph
@@ -87,19 +82,18 @@ def integrate_person_into_scene(person_path, bg_path, out_path,
     px1 = px0 + (bx1 - bx0); py1 = py0 + (by1 - by0)
 
     if bx0 >= bx1 or by0 >= by1:
-        raise ValueError("Person placement is completely outside the background. Adjust --place-x/--place-y or --scale.")
+        raise ValueError("Person placement is outside the background. Adjust --place/--scale.")
 
-    # Build overlay & alpha_full
     overlay = np.zeros_like(bg)
     overlay[by0:by1, bx0:bx1] = person_color[py0:py1, px0:px1]
 
     alpha_full = np.zeros((H, W), dtype=np.float32)
     alpha_full[by0:by1, bx0:bx1] = alpha[py0:py1, px0:px1]
 
-    # --- Base canvas ---
+    # Base canvas
     canvas = bg.copy()
 
-    # --- Optional synthetic shadow ---
+    # Optional synthetic shadow
     if config.add_shadow:
         if config.contact_shadow_only:
             shadow = synthesize_contact_shadow(alpha_full, strength=config.contact_shadow_strength)
@@ -111,58 +105,35 @@ def integrate_person_into_scene(person_path, bg_path, out_path,
         shadow_bgr = np.dstack([shadow, shadow, shadow])
         canvas = (canvas.astype(float) * (1 - shadow_bgr / 255.0)).astype(np.uint8)
 
-    # -------- Edge de-halo & feather (bilateral-enabled) --------
-    # 1) Solid interior mask
-    kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE,
-        (config.edge_inner_erode, config.edge_inner_erode)
-    )
-    alpha_solid = cv2.erode(alpha_full, kernel, iterations=1)
+    # -------- Single-pass feathered alpha blend (no Poisson) --------
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (config.edge_inner_erode, config.edge_inner_erode))
+    alpha_core = cv2.erode(alpha_full, k, iterations=1)
 
-    # 2) Edge ring
-    edge_ring = np.clip(alpha_full - alpha_solid, 0, 1).astype(np.float32)
-
+    ring = np.clip(alpha_full - alpha_core, 0, 1).astype(np.float32)
     if config.use_bilateral:
-        # bilateralFilter expects 8U or 32F single channel
-        edge_ring = cv2.bilateralFilter(
-            edge_ring,
-            d=config.bilateral_d,
-            sigmaColor=config.bilateral_sigma_color,
-            sigmaSpace=config.bilateral_sigma_space
-        )
+        ring = cv2.bilateralFilter(ring, config.bilateral_d,
+                                   config.bilateral_sigma_color,
+                                   config.bilateral_sigma_space)
     else:
-        edge_ring = cv2.GaussianBlur(edge_ring,
-                                     (config.edge_ring_blur, config.edge_ring_blur), 0)
+        ring = cv2.GaussianBlur(ring, (config.edge_ring_blur, config.edge_ring_blur), 0)
+    ring = np.clip(ring, 0.0, 1.0)
+    ring[ring < 0.03] = 0
 
-    edge_ring = np.clip(edge_ring, 0.0, 1.0)
+    alpha_feather = np.clip(alpha_core + ring, 0, 1)
 
-    # 3) Composite interior (hard)
-    canvas = (overlay.astype(float) * alpha_solid[:, :, None] +
-              canvas.astype(float) * (1 - alpha_solid[:, :, None]))
+    mix = overlay.astype(float) * (1 - config.bg_bleed) + bg.astype(float) * config.bg_bleed
+    final_overlay = overlay.astype(float)
+    final_overlay = final_overlay * (1 - ring[:, :, None]) + mix * ring[:, :, None]
 
-    # 4) Soften edge: bleed some BG into person
-    mix_person = overlay.astype(float)
-    mix_bg = bg.astype(float)
-    soft_mix = mix_person * (1.0 - config.bg_bleed) + mix_bg * config.bg_bleed
+    canvas = (final_overlay * alpha_feather[:, :, None] +
+              canvas.astype(float) * (1 - alpha_feather[:, :, None])).astype(np.uint8)
+    # ---------------------------------------------------------------
 
-    canvas = (soft_mix * edge_ring[:, :, None] +
-              canvas * (1 - edge_ring[:, :, None])).astype(np.uint8)
-    # -------- end feather --------
-
-    # --- Optional Poisson ---
-    if config.poisson_blend:
-        src_crop = person_color[py0:py1, px0:px1]
-        mask_crop = (alpha[py0:py1, px0:px1] * 255).astype(np.uint8)
-        dst_canvas = canvas.copy()
-        center = (bx0 + (bx1 - bx0) // 2, by0 + (by1 - by0) // 2)
-        blended = cv2.seamlessClone(src_crop, dst_canvas, mask_crop, center, cv2.MIXED_CLONE)
-        canvas[by0:by1, bx0:bx1] = blended[by0:by1, bx0:bx1]
-
-    # --- Debug saves ---
     if debug_dir and config.debug:
         ensure_dir(debug_dir)
         save_debug(overlay, f"{debug_dir}/person_color.png")
         save_debug((alpha_full * 255).astype(np.uint8), f"{debug_dir}/alpha.png", bgr=False)
+        save_debug((alpha_feather * 255).astype(np.uint8), f"{debug_dir}/alpha_feather.png", bgr=False)
 
     cv2.imwrite(out_path, canvas)
     return canvas

@@ -16,11 +16,12 @@ def main():
     parser.add_argument('--place-x', type=int, default=None)
     parser.add_argument('--place-y', type=int, default=None)
     parser.add_argument('--scale', type=float, default=1.0)
-    parser.add_argument('--no-poisson', action='store_true')
 
-    # NEW flags
     parser.add_argument('--add-shadow', action='store_true')
-    parser.add_argument('--full-shadow', action='store_true')  # overrides contact only
+    parser.add_argument('--full-shadow', action='store_true')  # if add-shadow is true, this picks long shadow
+
+    # Color/Blend flags (optional)
+    parser.add_argument('--color-match', choices=['none', 'reinhard', 'hist'], default='none')
 
     args = parser.parse_args()
 
@@ -31,7 +32,7 @@ def main():
     cfg = IntegratorConfig(
         indoor=args.indoor,
         person_height_m=args.person_height,
-        poisson_blend=not args.no_poisson,
+        color_match_method=args.color_match,
         debug=args.debug_dir is not None,
         add_shadow=args.add_shadow,
         contact_shadow_only=not args.full_shadow

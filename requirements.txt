@@ -4,6 +4,9 @@ Pillow
 scikit-image
 onnxruntime
 rembg
-torch
-pytorch-msssim
 pyyaml
+pytorch-msssim
+torch
+torchvision
+timm
+scipy
