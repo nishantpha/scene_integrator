@@ -5,5 +5,8 @@ scikit-image
 onnxruntime
 rembg
 torch
+torchvision
+timm
+scipy
 pytorch-msssim
 pyyaml
