@@ -32,3 +32,10 @@ class IntegratorConfig:
     bilateral_d: int = 9 # diameter of each pixel neighborhood
     bilateral_sigma_color: float = 25.0 # color sigma
     bilateral_sigma_space: float = 25.0 # space sigma
+
+        # --- lighting match ---
+    color_match_method: str = "none"  # keep, but we'll add "luma"
+    apply_bg_illumination: bool = True
+    illum_gauss: int = 61            # odd, large → very soft light map
+    illum_strength: float = 0.35     # 0..1 how strongly to multiply person by bg light map
+    gamma_after: float = 1.0         # final gamma tweak on person (1=no change)
