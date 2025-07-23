@@ -55,8 +55,11 @@ def integrate_person_into_scene(person_path, bg_path, out_path,
 
     # Alpha cleanup: remove speckles, keep interior opaque
     hard_mask = (alpha_raw > 0.1).astype(np.float32)
-    hard_mask = cv2.morphologyEx(hard_mask, cv2.MORPH_CLOSE,
-                                 cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    hard_mask = cv2.morphologyEx(
+        hard_mask,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    )
     alpha = cv2.GaussianBlur(hard_mask, (5, 5), 0)
     inside = alpha > 0.6
     alpha[inside] = np.maximum(alpha[inside], config.min_alpha)
@@ -108,32 +111,45 @@ def integrate_person_into_scene(person_path, bg_path, out_path,
         shadow_bgr = np.dstack([shadow, shadow, shadow])
         canvas = (canvas.astype(float) * (1 - shadow_bgr / 255.0)).astype(np.uint8)
 
-    # -------- Edge de-halo & feather --------
-    # 1) solid interior mask (erode a bit)
+    # -------- Edge de-halo & feather (bilateral-enabled) --------
+    # 1) Solid interior mask
     kernel = cv2.getStructuringElement(
-    cv2.MORPH_ELLIPSE,
-    (config.edge_inner_erode, config.edge_inner_erode)
-)
+        cv2.MORPH_ELLIPSE,
+        (config.edge_inner_erode, config.edge_inner_erode)
+    )
     alpha_solid = cv2.erode(alpha_full, kernel, iterations=1)
 
-    # 2) edge ring
-    edge_ring = np.clip(alpha_full - alpha_solid, 0, 1)
-    edge_ring = cv2.GaussianBlur(edge_ring,
-                             (config.edge_ring_blur, config.edge_ring_blur), 0)
+    # 2) Edge ring
+    edge_ring = np.clip(alpha_full - alpha_solid, 0, 1).astype(np.float32)
 
-    # 3) composite interior (hard)
+    if config.use_bilateral:
+        # bilateralFilter expects 8U or 32F single channel
+        edge_ring = cv2.bilateralFilter(
+            edge_ring,
+            d=config.bilateral_d,
+            sigmaColor=config.bilateral_sigma_color,
+            sigmaSpace=config.bilateral_sigma_space
+        )
+    else:
+        edge_ring = cv2.GaussianBlur(edge_ring,
+                                     (config.edge_ring_blur, config.edge_ring_blur), 0)
+
+    edge_ring = np.clip(edge_ring, 0.0, 1.0)
+
+    # 3) Composite interior (hard)
     canvas = (overlay.astype(float) * alpha_solid[:, :, None] +
               canvas.astype(float) * (1 - alpha_solid[:, :, None]))
 
-    # 4) soften edge: bleed a bit of background into person
+    # 4) Soften edge: bleed some BG into person
     mix_person = overlay.astype(float)
     mix_bg = bg.astype(float)
     soft_mix = mix_person * (1.0 - config.bg_bleed) + mix_bg * config.bg_bleed
+
     canvas = (soft_mix * edge_ring[:, :, None] +
               canvas * (1 - edge_ring[:, :, None])).astype(np.uint8)
-    # -------- end edge feather --------
+    # -------- end feather --------
 
-    # --- Optional Poisson (usually off) ---
+    # --- Optional Poisson ---
     if config.poisson_blend:
         src_crop = person_color[py0:py1, px0:px1]
         mask_crop = (alpha[py0:py1, px0:px1] * 255).astype(np.uint8)
